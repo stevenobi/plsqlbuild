@@ -68,6 +68,7 @@ BLD="build"
 ########################################################################
 
 THIS_DIR="`pwd`";
+THIS_LOG=${BLD}.log
 THIS_BUILDFILE="./.${BLD}file";
 THIS_GIT_LOG="./.buildgit";
 THIS_DATE=`date "+%y%m%d%H%M"`;
@@ -124,9 +125,9 @@ cp -p ${THIS_BUILDFILE} ./${BLD}.json;
 
 ########################################################################
 
-echo "" && echo "`date "+%d.%m.%Y %H:%M:%S"` *** ${THIS_BANNER} \
-Install | Build: ${THIS_VERSION} | Commit: ${THIS_COMMIT} ***" && \
-echo "" | tee -a ${THIS_GIT_LOG}
+echo ""  | tee -a ${THIS_LOG} && echo "`date "+%d.%m.%Y %H:%M:%S"` *** ${THIS_BANNER} \
+Install | Build: ${THIS_VERSION} | Commit: ${THIS_COMMIT} ***"  | tee -a ${THIS_LOG} && \
+echo "" | tee -a ${THIS_LOG}
 
 ########################################################################
 
@@ -136,13 +137,15 @@ done;
 
 ########################################################################
 
-echo "" && echo "`date "+%d.%m.%Y %H:%M:%S"` *** DONE Status ($?)" && \
-echo "" && echo "*** ${THIS_BANNER} \
-Install End | Build: ${THIS_VERSION} | Commit: ${THIS_COMMIT} ***" && \
-echo "" | tee -a ${THIS_GIT_LOG}
+echo "" | tee -a ${THIS_LOG} && \
+echo "`date "+%d.%m.%Y %H:%M:%S"` *** DONE Status ($?)" | tee -a ${THIS_LOG} && \
+echo "" | tee -a ${THIS_LOG} && echo "*** ${THIS_BANNER} \
+Install End | Build: ${THIS_VERSION} | Commit: ${THIS_COMMIT} ***" | tee -a ${THIS_LOG} && \
+echo "" | tee -a ${THIS_LOG}
 
 # commit all changes from this build
-[[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}" ${THIS_GIT_LOG} >/dev/null;
+[[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}"  \
+${THIS_LOG} ${THIS_GIT_LOG} >/dev/null;
 
 ########################################################################
 
