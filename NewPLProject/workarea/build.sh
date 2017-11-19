@@ -118,6 +118,8 @@ cp -p ${THIS_BUILDFILE} ./${BLD}.json;
 #[[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build: ${THIS_VERSION} ${THIS_CHECKSUM}" ${BLD}.json \
 # > ${THIS_GIT_LOG}
 [[ -x ${GIT} && -a ${THIS_GIT_LOG} ]] && ${GIT} add ${THIS_GIT_LOG};
+# initialize log
+echo 0>${THIS_LOG}
 # commit all changes in this sub/directory first
 [[ -x ${GIT} ]] && ${GIT} commit -m "Pre Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}" . > ${THIS_GIT_LOG}
 
