@@ -118,8 +118,7 @@ cp -p ${THIS_BUILDFILE} ./${BLD}.json;
 # > ${THIS_GIT_LOG}
 [[ -x ${GIT} && -a ${THIS_GIT_LOG} ]] && ${GIT} add ${THIS_GIT_LOG};
 # commit all changes in this sub/directory first
-[[ -x ${GIT} ]] && ${GIT} commit -m "Pre Build Commit: ${THIS_BUILD_COMMENT}: ${THIS_VERSION}" . \
- > ${THIS_GIT_LOG}
+[[ -x ${GIT} ]] && ${GIT} commit -m "Pre Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}" . > ${THIS_GIT_LOG}
 
 [[ -x ${GIT} && -a ${THIS_GIT_LOG} ]] && THIS_COMMIT=`cat ${THIS_GIT_LOG} | head -n1 |cut -f1-2 -d\ `;
 
@@ -138,12 +137,12 @@ done;
 ########################################################################
 
 echo "" && echo "`date "+%d.%m.%Y %H:%M:%S"` *** DONE Status ($?)" && \
-echo "" && echo "*** $? ${THIS_BANNER} \
+echo "" && echo "*** ${THIS_BANNER} \
 Install End | Build: ${THIS_VERSION} | Commit: ${THIS_COMMIT} ***" && \
 echo "" | tee -a ${THIS_GIT_LOG}
 
 # commit all changes from this build
-[[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build Commit: ${THIS_VERSION}" ${THIS_GIT_LOG} >/dev/null;
+[[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}" ${THIS_GIT_LOG} >/dev/null;
 
 ########################################################################
 
