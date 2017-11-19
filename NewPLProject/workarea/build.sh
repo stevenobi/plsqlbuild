@@ -132,7 +132,7 @@ echo "" | tee -a ${THIS_LOG}
 ########################################################################
 
 for m in ${THIS_MODULES}; do
-  $SQL -s ${USR}/${PWD}@${CONN} @${m} "${THIS_BANNER}" "${THIS_VERSION}"
+  $SQL -s ${USR}/${PWD}@${CONN} @${m} "${THIS_BANNER}" "${THIS_VERSION}" | tee -a ${THIS_LOG}
 done;
 
 ########################################################################
