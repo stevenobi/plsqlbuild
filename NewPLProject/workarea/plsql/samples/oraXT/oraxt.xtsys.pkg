@@ -1,0 +1,314 @@
+----------------------------------------------------------------------------------
+--
+-- Title: dbxtsys.pkg (DBA SYSTEM)
+--
+-- Description: PL/SQL Package to provide standard procedures and functions.
+--
+-- Parameters: None
+--
+-- History:      12.09.2007  S.Obermeyer created
+--
+----------------------------------------------------------------------------------
+
+------------------------------------------------------------------
+
+-- Standard Procedures and Functions are defined in this Package
+-- and used by DBA Scripts and other processes.
+
+------------------------------------------------------------------
+--                          Package Specification
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE "ORAXT" AUTHID CURRENT_USER
+IS
+-- name of this package
+pkg varchar2(30) := 'ORAXT';
+------------------------------------------------------------------
+-- Global Variables, REF_CURSORS and Types
+------------------------------------------------------------------
+db_version pls_integer := global.g_db_version;
+pad pls_integer := global.g_pad;
+ok varchar2(100) := global.g_ok;
+failed varchar2(100) := global.g_failed;
+------------------------------------------------------------------
+-- Package Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- with Oracle10g the Recycle Bin was introduced.
+-- To drop a table permanently the PURGE clause was added.
+------------------------------------------------------------------
+PROCEDURE "DROP_TABLE" (
+owner_in IN ALL_TABLES.OWNER%TYPE DEFAULT USER,
+table_in IN ALL_TABLES.TABLE_NAME%TYPE,
+cascade_constraints BOOLEAN := TRUE,
+purge_tab IN BOOLEAN := TRUE);
+
+PROCEDURE "DROP_INDEX" (
+owner_in IN ALL_INDEXES.OWNER%TYPE DEFAULT USER,
+index_in IN ALL_INDEXES.INDEX_NAME%TYPE,
+purge_ind IN BOOLEAN := TRUE);
+
+PROCEDURE "DROP_VIEW" (
+owner_in IN ALL_VIEWS.OWNER%TYPE DEFAULT USER,
+view_in IN ALL_VIEWS.VIEW_NAME%TYPE);
+
+PROCEDURE "DELTAB" (
+table_in IN ALL_TABLES.TABLE_NAME%TYPE,
+owner_in IN ALL_TABLES.OWNER%TYPE DEFAULT USER,
+where_clause IN VARCHAR2 DEFAULT NULL);
+
+
+-- Transform Booleans
+FUNCTION "NUM_TO_BOOLEAN" (
+  number_in IN NUMBER
+, false_num IN NUMBER := 0 -- which value evaluates to false?
+, operand IN VARCHAR2 := '>'
+) RETURN BOOLEAN;
+
+FUNCTION "BOOLEAN_TO_NUM" (
+  boolean_in IN BOOLEAN
+, true_num IN NUMBER := 1 -- which value is true?
+) RETURN NUMBER;
+
+
+END "ORAXT";
+/
+
+
+------------------------------------------------------------------
+--                          Package Body
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY "ORAXT"
+IS
+
+------------------------------------------------------------------
+-- Private Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- Wrapper Procedure to drop objects
+------------------------------------------------------------------
+PROCEDURE "DROP_OBJECT" (
+owner_in IN ALL_OBJECTS.OWNER%TYPE DEFAULT USER,
+obj_type_in IN ALL_OBJECTS.OBJECT_TYPE%TYPE,
+obj_in IN ALL_OBJECTS.OBJECT_NAME%TYPE,
+purge_obj IN BOOLEAN := TRUE,
+cascade_constraints BOOLEAN := FALSE)
+IS
+p_t VARCHAR2(30) := '';
+act VARCHAR2(5) := 'Dropp';
+invalid_objecttype EXCEPTION;
+PRAGMA EXCEPTION_INIT(invalid_objecttype, -2004);
+BEGIN
+
+    -- check if object is valid to drop
+    IF NOT (UPPER(obj_type_in) IN ('CLUSTER', 'CONSUMER GROUP', 'DIRECTORY', 'FUNCTION',
+                                               'INDEX', 'INDEX PARTITION', 'OPERATOR', 'PACKAGE', 'PACKAGE BODY',
+                                               'PROCEDURE', 'RESOURCE PLAN', 'SEQUENCE', 'SYNONYM', 'TABLE',
+                                               'TABLE PARTITION', 'TRIGGER', 'TYPE', 'TYPE BODY', 'VIEW')) THEN
+            RAISE invalid_objecttype;
+    END IF;
+
+    -- purging and table options
+    IF (db_version >= 10 AND UPPER(obj_type_in) = 'TABLE' ) THEN
+        IF (cascade_constraints) THEN
+            p_t := ' CASCADE CONSTRAINTS';
+        END IF;
+        IF purge_obj THEN
+        p_t := p_t || ' PURGE';
+        act := 'Purg';
+        END IF;
+    END IF;
+
+    IF (obj_type_in = 'TYPE') THEN
+        p_t := ' FORCE';
+    END IF;
+
+    FOR obj IN (SELECT object_name, object_type FROM all_objects
+                    WHERE object_name = UPPER (obj_in)
+                    AND object_type = UPPER(obj_type_in)
+                    AND owner = UPPER(owner_in)) LOOP
+              p (act||'ing '|| INITCAP(obj.object_type) ||': "'||UPPER(owner_in)||'"."'||obj.object_name||'" ', 100, FALSE, pad);
+                  EXECUTE IMMEDIATE 'DROP '|| obj.object_type ||' "'||owner_in||'"."'|| obj.object_name ||'" '|| p_t;
+              p (ok);
+    END LOOP;
+    EXCEPTION WHEN invalid_objecttype THEN
+    p ('ERROR: '|| act ||'ing "'|| obj_type_in ||'": not a valid object type to drop!');
+    p (SQLERRM);
+    WHEN OTHERS THEN
+    p (failed);
+    p ('ERROR: '|| act ||'ing '|| obj_type_in ||': "'|| UPPER(obj_in) ||'"!');
+    p (SQLERRM);
+    RAISE;
+END;
+
+-- DELETE * from table_in
+PROCEDURE "DELTAB" (
+table_in IN ALL_TABLES.TABLE_NAME%TYPE,
+owner_in IN ALL_TABLES.OWNER%TYPE DEFAULT USER,
+where_clause IN VARCHAR2 DEFAULT NULL)
+IS
+str VARCHAR2(1000);
+BEGIN
+
+    -- DELETE all from table_in
+    str := 'DELETE FROM "'||UPPER(owner_in)||'"."'||UPPER(table_in)||'" ';
+
+    -- append WHERE clause if present
+    IF where_clause IS NOT NULL THEN
+        str := str || ' ' || where_clause;
+    END IF;
+
+    EXECUTE IMMEDIATE str;
+
+EXCEPTION
+    WHEN OTHERS THEN
+    p ('ERROR: Deleting from "'|| owner_in ||'"."'|| UPPER(table_in) ||'"!');
+    p (SQLERRM);
+    RAISE;
+END;
+
+
+------------------------------------------------------------------
+-- Admin Procedures (mostly DDL)
+------------------------------------------------------------------
+
+PROCEDURE "DROP_TABLE" (
+owner_in IN ALL_TABLES.OWNER%TYPE DEFAULT USER,
+table_in IN ALL_TABLES.TABLE_NAME%TYPE,
+cascade_constraints BOOLEAN := TRUE,
+purge_tab IN BOOLEAN := TRUE)
+IS
+BEGIN
+    drop_object(owner_in, 'TABLE', table_in, purge_tab, cascade_constraints);
+END;
+
+PROCEDURE "DROP_INDEX" (
+owner_in IN ALL_INDEXES.OWNER%TYPE DEFAULT USER,
+index_in IN ALL_INDEXES.INDEX_NAME%TYPE,
+purge_ind IN BOOLEAN := TRUE)
+IS
+BEGIN
+    drop_object(owner_in, 'INDEX', index_in, purge_ind);
+END;
+
+
+PROCEDURE "DROP_VIEW" (
+owner_in IN ALL_VIEWS.OWNER%TYPE DEFAULT USER,
+view_in IN ALL_VIEWS.VIEW_NAME%TYPE)
+IS
+BEGIN
+    drop_object(owner_in, 'VIEW', view_in);
+END;
+
+------------------------------------------------------------------
+-- Admin Functions (mostly converters)
+------------------------------------------------------------------
+
+FUNCTION "NUM_TO_BOOLEAN" (
+  number_in IN NUMBER
+, false_num IN NUMBER := 0 -- which value evaluates to false?
+, operand IN VARCHAR2 := '>'
+) RETURN BOOLEAN
+IS
+retval BOOLEAN := FALSE;
+BEGIN
+    IF operand = '>' AND number_in > false_num THEN
+        retval := TRUE;
+    ELSIF operand = '=' AND number_in = false_num THEN
+        retval := TRUE;
+    ELSIF operand = '<' AND number_in < false_num THEN
+        retval := TRUE;
+    END IF;
+RETURN retval;
+END;
+
+FUNCTION "BOOLEAN_TO_NUM" (
+  boolean_in IN BOOLEAN
+, true_num IN NUMBER := 1 -- which value is true?
+) RETURN NUMBER
+IS
+retval NUMBER := 0;
+BEGIN
+    IF boolean_in THEN
+        retval := true_num;
+    END IF;
+RETURN retval;
+END;
+
+------------------------------------------------------------------
+-- Initialization Section
+------------------------------------------------------------------
+BEGIN
+
+    -- Need separate initialization sections to catch exceptions
+
+ null;
+
+------------------------------------------------------------------
+-- End of Initialization Section
+------------------------------------------------------------------
+
+END "ORAXT";
+/
+
+------------------------------------------------------------------
+-- Display Errors if any
+------------------------------------------------------------------
+@show_pkg_errors.sql "ORAXT"
+--@show_pkg_source.sql "dbORAXT"
+
+------------------------------------------------------------------
+-- Privileges and Public Synonym
+------------------------------------------------------------------
+set feedback off
+declare
+cnt pls_integer := 0;
+begin
+    select nvl(count(*),0) into cnt
+    from all_objects
+    where object_type in ('PACKAGE','PACKAGE BODY')
+    and owner = user
+    and object_name = 'ORAXT'
+    and status = 'VALID';
+    if cnt = 2 then
+        --execute immediate 'CREATE OR REPLACE PUBLIC SYNONYM "ORAXT" FOR "'||user||'"."ORAXT"';
+        execute immediate 'GRANT EXECUTE ON "'||user||'"."ORAXT" TO DBA';
+    end if;
+end;
+/
+set feedback on
+
+----------------------------------------------------------------------------------------------------
+
+-- Transform Booleans
+create or replace FUNCTION "NUM_TO_BOOLEAN" (
+  p_number_in IN NUMBER
+, p_false_num IN NUMBER := 0 
+, p_operand IN VARCHAR2 := '>'
+) RETURN BOOLEAN
+is
+retval boolean;
+begin
+  retval := oraxt.num_to_boolean (  number_in => p_number_in
+                                                  , false_num => p_false_num
+                                                  , operand => p_operand);
+return retval;
+end;
+/
+
+create or replace FUNCTION "BOOLEAN_TO_NUM" (
+  p_boolean_in IN BOOLEAN
+, p_true_num IN NUMBER := 1 -- which value is true?
+) RETURN NUMBER
+is
+retval number;
+begin
+  retval := oraxt.BOOLEAN_TO_NUM (  boolean_in => p_boolean_in
+                                                      , true_num => p_true_num);
+return retval;
+end;
+/
+
+
+

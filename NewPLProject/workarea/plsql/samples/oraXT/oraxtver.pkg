@@ -1,0 +1,537 @@
+------------------------------------------------------------------
+-- Required Tables
+------------------------------------------------------------------
+
+PROMPT
+PROMPT *** Oracle Users ***
+SET TERMOUT OFF
+@@oraxt.orausers.sql
+SET TERMOUT ON
+PROMPT
+PROMPT Table And Views Created
+
+----------------------------------------------------------------------------------
+--
+-- Title: VER.pkg (ORAXT VERIFY)
+--
+-- Description: PL/SQL Package to verify and test conditions.
+--
+-- Requirements: none
+--
+-- History:      15.11.2007  S.Obermeyer     created
+--                   29.03.2013 S.Obermeyer     updated to ORAXTVER
+--                   2013-12-27 S.Obermeyer     changed to VER as module of ORAXT
+--
+----------------------------------------------------------------------------------
+
+--this PACKAGE defines the IS... Functions to check f.e. if a user or object
+--exists or if the state of certain objects are valid. The structure of the
+--functions is mostly the same, and return BOOLEANs.
+
+------------------------------------------------------------------
+--                          Package Specification
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE "VER"
+AUTHID CURRENT_USER IS
+
+-- Name of this package
+pkg VARCHAR2(10) := 'VER';
+
+------------------------------------------------------------------
+-- Generic Types
+------------------------------------------------------------------
+
+-- Scalar Subtypes based column datatypes
+
+-- common types
+SUBTYPE ownertype IS "DBA_OBJECTS"."OWNER"%TYPE;
+
+-- external table types
+SUBTYPE tabletype IS "DBA_EXTERNAL_LOCATIONS"."TABLE_NAME"%TYPE;
+SUBTYPE filetype IS "DBA_EXTERNAL_LOCATIONS"."LOCATION"%TYPE;
+
+-- directory types
+SUBTYPE dirtype IS "DBA_DIRECTORIES"."DIRECTORY_NAME"%TYPE;
+SUBTYPE pathtype IS "DBA_DIRECTORIES"."DIRECTORY_PATH"%TYPE;
+
+------------------------------------------------------------------
+-- Package Variables
+------------------------------------------------------------------
+
+-- Global Variables
+
+-- Database Version taken from DBASYS Package in INIT Section
+db_version NUMBER;
+
+-- Global Debug Settings
+g_debug BOOLEAN := global.g_debug;
+
+-- Constants
+istrue CONSTANT  BOOLEAN := global.g_istrue;
+isfalse CONSTANT BOOLEAN := global.g_isfalse;
+
+------------------------------------------------------------------
+-- Package Procedures and Functions
+------------------------------------------------------------------
+
+-- Account locked?
+FUNCTION "ISACCOUNTOPEN" (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN;
+
+-- User is connected?
+FUNCTION "ISCONNECTED"  (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN;
+
+-- User is DBA?
+FUNCTION "ISDBA"  (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN;
+
+-- does a certain object exist?
+FUNCTION "ISOBJECT"  (
+objtype_in IN all_objects.object_type%TYPE,
+objown_in IN all_objects.owner%TYPE DEFAULT USER,
+objname_in IN all_objects.object_name%TYPE
+)
+RETURN BOOLEAN;
+
+-- is User an Oracle User?
+-- if exclude_samples is TRUE, then sample schemas
+-- are treated as regular users, that can be dropped etc...
+FUNCTION "ISORAUSER"  (
+username_in IN VARCHAR2,
+exclude_samples BOOLEAN := FALSE
+)
+RETURN BOOLEAN;
+
+-- does a table exist?
+FUNCTION "ISTABLE"  (
+tabown_in IN all_objects.owner%TYPE DEFAULT USER,
+tabname_in IN all_objects.object_name%TYPE
+-- using all_objects to anchor types because we call ISOBJECT in turn
+, debug BOOLEAN DEFAULT g_debug
+)
+RETURN BOOLEAN;
+
+-- does view exist?
+FUNCTION "ISVIEW"  (
+viewown_in IN all_objects.owner%TYPE DEFAULT USER,
+viewname_in IN all_objects.object_name%TYPE
+-- using all_objects to anchor types because we call ISOBJECT in turn
+)
+RETURN BOOLEAN;
+
+-- is it a valid view?
+FUNCTION "ISVALIDVIEW"  (
+viewown_in IN all_objects.owner%TYPE DEFAULT USER,
+viewname_in IN all_objects.object_name%TYPE
+-- using all_objects to anchor types because we call ISOBJECT in turn
+)
+RETURN BOOLEAN;
+
+-- does the user exist in current DB?
+FUNCTION "ISUSER"  (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN;
+
+-- Object valid?
+FUNCTION "ISVALID"  (
+  objown_in IN all_objects.owner%TYPE DEFAULT USER
+, objtype_in IN all_objects.object_type%TYPE
+, objname_in IN all_objects.object_name%TYPE
+)
+RETURN BOOLEAN;
+
+-- Oracle running on Windows?
+FUNCTION "ISWIN"
+RETURN BOOLEAN;
+
+-- Is dir_in an Oracle Directory Object?
+FUNCTION "ISDIR" (
+  dir_in dirtype
+, owner_in ownertype DEFAULT USER
+, debug BOOLEAN DEFAULT g_debug
+) RETURN BOOLEAN;
+
+FUNCTION "ISFILE" (
+  file_in filetype
+, dir_in dirtype
+, p_debug BOOLEAN DEFAULT global.g_debug
+) RETURN BOOLEAN;
+
+FUNCTION "HASROWS" (
+  table_in tabletype
+, owner_in ownertype DEFAULT USER
+, rownum_in NUMBER DEFAULT 10
+, debug BOOLEAN DEFAULT g_debug
+) RETURN BOOLEAN;
+
+PROCEDURE "PUBPKG" (
+  objown_in IN dba_objects.owner%TYPE
+, objname_in IN dba_objects.object_name%TYPE
+);
+
+------------------------------------------------------------------
+
+END "VER";
+/
+
+
+------------------------------------------------------------------
+--                          Package Body
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY "VER"
+IS
+
+------------------------------------------------------------------
+-- Verify Functions
+------------------------------------------------------------------
+
+FUNCTION "ISACCOUNTOPEN" (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN
+IS
+usr_cnt NUMBER;
+CURSOR usrcnt (user_in VARCHAR2) IS
+    SELECT COUNT(account_status) INTO usr_cnt
+    FROM dba_users WHERE username = user_in
+    AND account_status = 'OPEN';
+BEGIN
+    OPEN usrcnt (UPPER(username_in));
+    FETCH usrcnt INTO usr_cnt;
+RETURN num_to_boolean(usr_cnt);
+END;
+
+FUNCTION "ISCONNECTED"  (
+username_in IN VARCHAR2)
+RETURN BOOLEAN
+IS
+usr_cnt NUMBER;
+BEGIN
+    SELECT COUNT(username) INTO usr_cnt
+    FROM v$session WHERE username = UPPER(username_in)
+    AND status NOT IN ('KILLED', 'STALE');
+    IF (usr_cnt = 0) THEN
+        RETURN FALSE;
+    ELSE
+        RETURN TRUE;
+    END IF;
+END;
+
+
+FUNCTION "ISDBA"  (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN
+IS
+usr_cnt NUMBER;
+BEGIN
+    SELECT COUNT(granted_role) INTO usr_cnt
+    FROM dba_role_privs WHERE granted_role = 'DBA'
+    AND grantee = UPPER(username_in);
+    IF (usr_cnt = 0) THEN
+        RETURN FALSE;
+    ELSE
+        RETURN TRUE;
+    END IF;
+END;
+
+
+FUNCTION "ISOBJECT"  (
+objtype_in IN all_objects.object_type%TYPE,
+objown_in IN all_objects.owner%TYPE DEFAULT USER,
+objname_in IN all_objects.object_name%TYPE
+)
+RETURN BOOLEAN
+IS
+val_cnt PLS_INTEGER;
+BEGIN
+    SELECT NVL(COUNT(*),0) INTO val_cnt
+    FROM all_objects
+    WHERE object_name = UPPER(objname_in)
+    AND object_type = UPPER(objtype_in)
+    AND owner = UPPER(objown_in);
+    IF (val_cnt = 0) THEN
+        RETURN FALSE;
+    ELSE
+        RETURN TRUE;
+    END IF;
+END;
+
+
+FUNCTION "ISORAUSER"  (
+username_in IN VARCHAR2,
+exclude_samples BOOLEAN := FALSE
+)
+RETURN BOOLEAN
+IS
+usr_cnt NUMBER;
+BEGIN
+    IF (exclude_samples) THEN
+    -- it is OK to exclude Sample Schemas from Oracle Userlist,
+    -- thus to drop, clear or do whatever with them
+        SELECT COUNT(username) INTO usr_cnt
+        FROM oracle_users WHERE username NOT IN (
+        'HR', 'OE', 'PM', 'SH', 'QS_ADM', 'QS', 'QS_WS',
+        'QS_ES', 'QS_OS', 'QS_CBADM','QS_CB','QS_CS')
+        AND username = UPPER(username_in);
+    ELSE
+        SELECT COUNT(username) INTO usr_cnt
+        FROM oracle_users WHERE username = UPPER(username_in);
+    END IF;
+    IF (usr_cnt = 0) THEN
+        RETURN FALSE;
+    ELSE
+        RETURN TRUE;
+    END IF;
+END;
+
+
+FUNCTION "ISTABLE"  (
+  tabown_in IN all_objects.owner%TYPE DEFAULT USER
+, tabname_in IN all_objects.object_name%TYPE
+-- using all_objects to anchor types because we call ISOBJECT in turn
+, debug BOOLEAN DEFAULT g_debug
+)
+RETURN BOOLEAN
+IS
+BEGIN
+    IF isobject('TABLE', tabown_in, tabname_in) THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END;
+
+
+FUNCTION "ISVIEW"  (
+viewown_in IN all_objects.owner%TYPE DEFAULT USER,
+viewname_in IN all_objects.object_name%TYPE
+-- using all_objects to anchor types because we call ISOBJECT in turn
+)
+RETURN BOOLEAN
+IS
+BEGIN
+    IF isobject('VIEW', viewown_in, viewname_in) THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END;
+
+
+FUNCTION "ISUSER"  (
+username_in IN VARCHAR2
+)
+RETURN BOOLEAN
+IS
+usr_cnt NUMBER;
+BEGIN
+    SELECT COUNT(username) INTO usr_cnt
+    FROM dba_users WHERE username = UPPER(username_in);
+    IF (usr_cnt = 0) THEN
+        RETURN FALSE;
+    ELSE
+        RETURN TRUE;
+    END IF;
+END;
+
+
+FUNCTION "ISVALID"  (
+  objown_in IN all_objects.owner%TYPE DEFAULT USER
+, objtype_in IN all_objects.object_type%TYPE
+, objname_in IN all_objects.object_name%TYPE
+)
+RETURN BOOLEAN
+IS
+val_cnt PLS_INTEGER;
+BEGIN
+    SELECT NVL(COUNT(object_name),0) INTO val_cnt
+    FROM all_objects
+    WHERE object_name = UPPER(objname_in)
+    AND object_type = UPPER(objtype_in)
+    AND owner = UPPER(objown_in)
+    AND status = 'VALID';
+    IF (val_cnt = 0) THEN
+        RETURN FALSE;
+    ELSE
+        RETURN TRUE;
+    END IF;
+END;
+
+FUNCTION "ISVALIDVIEW"  (
+viewown_in IN all_objects.owner%TYPE DEFAULT USER,
+viewname_in IN all_objects.object_name%TYPE
+-- using all_objects to anchor types because we call ISOBJECT in turn
+)
+RETURN BOOLEAN
+IS
+BEGIN
+    IF isvalid('VIEW', viewown_in, viewname_in) THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END;
+
+
+FUNCTION "ISWIN"
+RETURN BOOLEAN
+IS
+cur_var v$parameter.name%TYPE;
+CURSOR win_cur IS
+            SELECT name
+            FROM v$parameter
+            WHERE name = 'control_files'
+            AND value LIKE '%:\%';
+BEGIN
+    OPEN win_cur;
+    FETCH win_cur INTO cur_var;
+    IF win_cur%ROWCOUNT>0 THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END;
+
+
+FUNCTION "ISDIR" (
+  dir_in dirtype
+, owner_in ownertype DEFAULT USER
+, debug BOOLEAN DEFAULT g_debug
+) RETURN BOOLEAN
+IS
+dir_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO dir_cnt
+    FROM dba_directories
+    WHERE directory_name = UPPER(dir_in)
+    AND owner = UPPER(owner_in);
+
+    IF dir_cnt > 0 THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END;
+
+
+FUNCTION "ISFILE" (
+  file_in filetype
+, dir_in dirtype
+, p_debug BOOLEAN DEFAULT global.g_debug
+) RETURN BOOLEAN
+IS
+-- taken from Oracle Documentation
+-- http://download.oracle.com/docs/cd/B19306_01/appdev.102/b14258/u_file.htm#BABDEJDH
+v1 VARCHAR2(32767);
+f1 UTL_FILE.FILE_TYPE;
+BEGIN
+    -- In this example, GET_LINE doesn't specify a number of bytes, so it defaults to
+    -- the same value as FOPEN's MAX_LINESIZE which is NULL in this case and defaults to 1024.
+    -- So the number of bytes returned will be 1024 or less if a line terminator is seen.
+    F1 := UTL_FILE.FOPEN(dir_in, file_in,'R');
+    UTL_FILE.GET_LINE(f1,v1);
+    UTL_FILE.FCLOSE(f1);
+RETURN TRUE;
+EXCEPTION
+    WHEN UTL_FILE.INVALID_PATH THEN
+        IF p_debug THEN p ('ERROR: Invalid Path to file: "'||file_in||'"!'); END IF;
+        RETURN FALSE;
+    WHEN UTL_FILE.INVALID_FILEHANDLE THEN
+        IF p_debug THEN p ('ERROR: Invalid File: "'||file_in||'"!'); END IF;
+        RETURN FALSE;
+    WHEN UTL_FILE.INVALID_OPERATION THEN
+        IF p_debug THEN p ('ERROR: File: "'||file_in||'" could not be opened or operated on as requested!'); END IF;
+        RETURN FALSE;
+    WHEN UTL_FILE.READ_ERROR THEN
+        IF p_debug THEN p ('ERROR: Operating system error occurred during the read operation on file: "'||file_in||'"!'); END IF;
+        RETURN FALSE;
+    WHEN UTL_FILE.ACCESS_DENIED THEN
+        IF p_debug THEN p ('ERROR: Permission to access to the file "'||file_in||'" location is denied!'); END IF;
+        RETURN FALSE;
+    WHEN OTHERS THEN
+        IF p_debug THEN
+            p ('ERROR: checking file: "'||file_in||'"!');
+            p (SQLERRM);
+        END IF;
+    RAISE;
+END;
+
+FUNCTION "HASROWS" (
+  table_in tabletype
+, owner_in ownertype DEFAULT USER
+, rownum_in NUMBER DEFAULT 10
+, debug BOOLEAN DEFAULT g_debug
+) RETURN BOOLEAN
+IS
+stmt VARCHAR2(1000);
+row_cnt NUMBER;
+retval BOOLEAN;
+BEGIN
+    stmt := 'SELECT COUNT(*) FROM '||UPPER(owner_in)||'.'||UPPER(table_in);
+    stmt := stmt || ' WHERE ROWNUM < '||rownum_in;
+    EXECUTE IMMEDIATE stmt INTO row_cnt;
+    RETURN num_to_boolean(row_cnt);
+END;
+
+PROCEDURE "PUBPKG" (
+  objown_in IN dba_objects.owner%TYPE
+, objname_in IN dba_objects.object_name%TYPE
+) IS
+BEGIN
+    IF isvalid(objown_in, 'PACKAGE', objname_in)
+    AND isvalid(USER, 'PACKAGE BODY', objname_in) THEN
+        EXECUTE IMMEDIATE 'CREATE OR REPLACE PUBLIC SYNONYM "'||UPPER(objname_in)||
+                                     '" FOR "'||UPPER(objown_in)||'"."'||UPPER(objname_in)||'"';
+        EXECUTE IMMEDIATE 'GRANT EXECUTE ON "'||UPPER(objname_in)||'" TO DBA';
+    END IF;
+END;
+
+------------------------------------------------------------------
+-- Initialization Section
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- End of Initialization Section
+------------------------------------------------------------------
+
+END "VER";
+/
+
+------------------------------------------------------------------
+-- Display Errors if any
+------------------------------------------------------------------
+@show_pkg_errors.sql "VER"
+--@show_pkg_source.sql "VER"
+
+------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------
+SET FEEDBACK OFF
+DECLARE
+cnt PLS_INTEGER := 0;
+BEGIN
+    SELECT NVL(COUNT(*),0) INTO cnt
+    FROM all_objects
+    WHERE object_type in ('PACKAGE','PACKAGE BODY')
+    AND owner = USER
+    AND object_name = 'VER'
+    AND status = 'VALID';
+    IF cnt = 2 THEN
+        --EXECUTE IMMEDIATE 'CREATE OR REPLACE PUBLIC SYNONYM "VER" FOR "'||USER||'"."VER"';
+        EXECUTE IMMEDIATE 'GRANT EXECUTE ON "'||USER||'"."VER" TO DBA';
+    END IF;
+END;
+/
+SET FEEDBACK ON
+
+----------------------------------------------------------------------------------------------------
+

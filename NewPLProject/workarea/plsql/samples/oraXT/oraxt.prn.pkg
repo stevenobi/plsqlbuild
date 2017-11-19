@@ -1,0 +1,681 @@
+----------------------------------------------------------------------------------
+--
+-- Title: prn.pkg (DBA SYSTEM)
+--
+-- Description: PL/SQL Package to provide standard procedures and functions.
+--
+-- Parameters: None
+--
+-- History:      2013-12-27 22:49:05  S.Obermeyer created
+--
+----------------------------------------------------------------------------------
+
+------------------------------------------------------------------
+
+-- Standard Procedures and Functions are defined in this Package
+-- and used by DBA Scripts and other processes.
+
+------------------------------------------------------------------
+--                          Package Specification
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE "PRN" AUTHID CURRENT_USER
+IS
+-- name of this package
+pkg varchar2(30) := 'PRN';
+------------------------------------------------------------------
+-- Global Variables, REF_CURSORS and Types
+------------------------------------------------------------------
+
+g_debug boolean := global.g_debug;
+
+-- status output
+ok CONSTANT VARCHAR2(4) := global.g_ok;
+failed CONSTANT VARCHAR2(8) := global.g_failed;
+
+-- padding
+pad CONSTANT PLS_INTEGER := global.g_pad;
+
+-- name of this package
+pkg_name global.g_name := 'PRN';
+
+-- majorversion of current instance
+db_version PLS_INTEGER := global.g_db_version ;
+
+-- print_pretty_line counter
+ppl_cnt PLS_INTEGER := 0;
+
+-- print_pretty_line_length
+ppl_len PLS_INTEGER := 0;
+
+------------------------------------------------------------------
+-- Package Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- DBMS_OUTPUT Limitations:
+--
+-- Oracle 9i:
+--  Errors raised:
+--  ORU-10027: buffer overflow, limit of <buf_limit> bytes.
+--  ORU-10028:line length overflow, limit of 255 bytes
+
+-- Oracle 10g:
+--  Errors raised:
+--  ORU-10027: buffer overflow, limit of <buf_limit> bytes.
+--  ORU-10028:line length overflow, limit of 32767 bytes per line.
+
+-- Note: Procedures assume LINESIZE 100 in SQL*Plus
+------------------------------------------------------------------
+
+
+------------------------------------------------------------------
+-- PrintLine: Wrapper Procedure to DBMS_OUTPUT
+-- avoids ORU-10028 Errors with lines larger 255 bytes (up until 9i)
+-- adapted from Steven Feuerstein: PL/SQL Best Practices (B-01)
+------------------------------------------------------------------
+PROCEDURE pl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE);
+
+------------------------------------------------------------------
+-- PrintPrettyLine: Wrapper Procedure to DBMS_OUTPUT
+-- see PrintLine for Description
+-- added support for "pretty" line breaks at last blank of line.
+------------------------------------------------------------------
+PROCEDURE ppl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE);
+
+------------------------------------------------------------------
+-- Wrapper Procedure to DBMS_OUTPUT for easier access
+-- and extended functionality. Calls to pl and ppl are made from it.
+------------------------------------------------------------------
+PROCEDURE p (
+str_in IN VARCHAR2,
+len_in IN NUMBER DEFAULT 100,
+p_line IN BOOLEAN DEFAULT TRUE, -- use put_line ?
+padding IN NUMBER DEFAULT NULL, -- use rpad?
+padchar IN CHAR DEFAULT '.',        -- character used for padding
+print_pretty IN BOOLEAN := FALSE,  -- use PrintPretty for Linebreaks
+expand_in IN BOOLEAN := TRUE);
+
+END "PRN";
+/
+
+
+------------------------------------------------------------------
+--                          Package Body
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY "PRN"
+IS
+
+------------------------------------------------------------------
+-- Private Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- Printing Output Procedures
+------------------------------------------------------------------
+
+-- print_line
+PROCEDURE pl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE)
+IS
+len PLS_INTEGER;
+str VARCHAR2(2000);
+BEGIN
+    -- set maximum chars/line
+    IF (db_version < 10) THEN
+        len  := LEAST (len_in, 255);
+    ELSE
+        len  := LEAST (len_in, 32767);
+    END IF;
+
+    IF (LENGTH (str_in) > len) THEN
+        str := SUBSTR (str_in, 1, len);
+        DBMS_OUTPUT.PUT_LINE (str);
+        --recursive call of this procedure for remaining characters
+        pl (SUBSTR (str_in, len + 1), len, expand_in);
+    ELSE
+        str := str_in;
+        DBMS_OUTPUT.PUT_LINE (str);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE ('Execption in PL');
+    IF expand_in THEN
+       DBMS_OUTPUT.ENABLE (1000000);
+    ELSE
+       RAISE;
+    END IF;
+    DBMS_OUTPUT.PUT_LINE (str);
+END;
+
+
+-- print_pretty_line
+PROCEDURE ppl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE)
+IS
+len PLS_INTEGER := LEAST (len_in, 255);
+str VARCHAR2(2000);
+BEGIN
+    -- set maximum chars/line
+    IF (db_version < 10) THEN
+        len  := LEAST (len_in, 255);
+    ELSE
+        len  := LEAST (len_in, 32767);
+    END IF;
+
+    IF (LENGTH (str_in) > len) THEN
+        -- increment package variable ppl_cnt first
+        ppl_cnt := ppl_cnt + 1;
+        IF (ppl_cnt = 1) THEN -- first run, so set l_len
+        -- len_in can change at runtime, so we need a constant value here.
+            ppl_len := len_in;
+        END IF;
+
+        str := SUBSTR (str_in, 1, len);
+        len := INSTR(str, ' ', -1, 1);
+        str := SUBSTR (str, 1, INSTR(str, ' ', -1, 1));
+        DBMS_OUTPUT.PUT_LINE (str);
+        --recursive call of this procedure for remaining characters
+        ppl (SUBSTR (str_in, len + 1), ppl_len, expand_in);
+    ELSE
+        str := str_in;
+        DBMS_OUTPUT.PUT_LINE (str);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE ('Execption in PPL');
+    IF expand_in THEN
+       DBMS_OUTPUT.ENABLE (1000000);
+    ELSE
+       RAISE;
+    END IF;
+    -- PUT_LINE Exceptions are handled in ppl or pl already
+    DBMS_OUTPUT.PUT (str);
+END;
+
+
+------------------------------------------------------------------
+-- Public Procedures and Functions
+------------------------------------------------------------------
+-- print
+PROCEDURE p (
+str_in IN VARCHAR2,
+len_in IN NUMBER DEFAULT 100,
+p_line IN BOOLEAN DEFAULT TRUE, -- use put_line ?
+padding IN NUMBER DEFAULT NULL, -- use rpad?
+padchar IN CHAR DEFAULT '.',         -- character used for padding
+print_pretty IN BOOLEAN := FALSE,  -- use PrintPretty for Linebreaks
+expand_in IN BOOLEAN := TRUE)
+IS
+str VARCHAR2(2000);
+max_line PLS_INTEGER;
+BEGIN
+
+    IF (padding IS NOT NULL) THEN
+        str := RPAD(str_in, padding, padchar);
+    ELSE
+        str := str_in;
+    END IF;
+
+    IF (p_line) THEN
+        IF (print_pretty) THEN
+        --DBMS_OUTPUT.PUT_LINE ('Printing Pretty Line: '||str);
+            ppl (str, len_in);
+        ELSE
+        --DBMS_OUTPUT.PUT_LINE ('Printing Line: '||str);
+            pl (str, len_in);
+        END IF;
+    ELSE
+        DBMS_OUTPUT.PUT(str);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    IF expand_in THEN
+       DBMS_OUTPUT.ENABLE (1000000);
+    ELSE
+       RAISE;
+    END IF;
+    -- PUT_LINE Exceptions are handled in ppl or pl already
+    DBMS_OUTPUT.PUT (str);
+END;
+
+------------------------------------------------------------------
+-- Initialization Section
+------------------------------------------------------------------
+BEGIN
+
+    -- Need separate initialization sections to catch exceptions
+
+NULL;
+------------------------------------------------------------------
+-- End of Initialization Section
+------------------------------------------------------------------
+
+END "PRN";
+/
+
+------------------------------------------------------------------
+-- Display Errors if any
+------------------------------------------------------------------
+@show_pkg_errors.sql "PRN"
+--@show_pkg_source.sql "prn"
+
+------------------------------------------------------------------
+-- Privileges and Public Synonym
+------------------------------------------------------------------
+set feedback off
+declare
+cnt pls_integer := 0;
+begin
+    select nvl(count(*),0) into cnt
+    from all_objects
+    where object_type in ('PACKAGE','PACKAGE BODY')
+    and owner = user
+    and object_name = 'PRN'
+    and status = 'VALID';
+    if cnt = 2 then
+        --execute immediate 'CREATE OR REPLACE PUBLIC SYNONYM "PRN" FOR "'||user||'"."PRN"';
+        execute immediate 'GRANT EXECUTE ON "'||user||'"."PRN" TO DBA';
+    end if;
+end;
+/
+set feedback on
+
+----------------------------------------------------------------------------------------------------
+create or replace PROCEDURE pl (
+p_str_in IN VARCHAR2,
+p_len_in IN INTEGER := 100,
+p_expand_in IN BOOLEAN := TRUE)
+is
+begin
+  prn.pl(   STR_IN => P_STR_IN
+            , LEN_IN => P_LEN_IN
+            , EXPAND_IN => P_EXPAND_IN);
+end;
+/
+
+------------------------------------------------------------------
+-- PrintPrettyLine: Wrapper Procedure to DBMS_OUTPUT
+-- see PrintLine for Description
+-- added support for "pretty" line breaks at last blank of line.
+------------------------------------------------------------------
+create or replace PROCEDURE ppl (
+p_str_in IN VARCHAR2,
+p_len_in IN INTEGER := 100,
+p_expand_in IN BOOLEAN := TRUE)
+is
+begin
+  prn.ppl(  STR_IN => P_STR_IN
+             , LEN_IN => P_LEN_IN
+             , EXPAND_IN => P_EXPAND_IN);
+end;
+/
+
+------------------------------------------------------------------
+-- Wrapper Procedure to DBMS_OUTPUT for easier access
+-- and extended functionality. Calls to pl and ppl are made from it.
+------------------------------------------------------------------
+create or replace PROCEDURE p (
+p_str_in IN VARCHAR2,
+p_len_in IN NUMBER DEFAULT 100,
+p_line IN BOOLEAN DEFAULT TRUE, -- use put_line ?
+p_padding IN NUMBER DEFAULT NULL, -- use rpad?
+p_padchar IN CHAR DEFAULT '.',        -- character used for padding
+p_print_pretty IN BOOLEAN := FALSE,  -- use PrintPretty for Linebreaks
+p_expand_in IN BOOLEAN := TRUE)
+is
+begin
+  prn.p(  STR_IN => P_STR_IN
+             , LEN_IN => P_LEN_IN
+----------------------------------------------------------------------------------
+--
+-- Title: prn.pkg (DBA SYSTEM)
+--
+-- Description: PL/SQL Package to provide standard procedures and functions.
+--
+-- Parameters: None
+--
+-- History:      2013-12-27 22:49:05  S.Obermeyer created
+--
+----------------------------------------------------------------------------------
+
+------------------------------------------------------------------
+
+-- Standard Procedures and Functions are defined in this Package
+-- and used by DBA Scripts and other processes.
+
+------------------------------------------------------------------
+--                          Package Specification
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE "PRN" AUTHID CURRENT_USER
+IS
+
+------------------------------------------------------------------
+-- Global Variables, REF_CURSORS and Types
+------------------------------------------------------------------
+
+g_debug boolean := global.g_debug;
+
+-- status output
+ok CONSTANT VARCHAR2(4) := global.g_ok;
+failed CONSTANT VARCHAR2(8) := global.g_failed;
+
+-- padding
+pad CONSTANT PLS_INTEGER := global.g_pad;
+
+-- name of this package
+pkg_name global.g_name := 'PRN';
+
+-- majorversion of current instance
+db_version PLS_INTEGER := global.g_db_version ;
+
+-- print_pretty_line counter
+ppl_cnt PLS_INTEGER := 0;
+
+-- print_pretty_line_length
+ppl_len PLS_INTEGER := 0;
+
+------------------------------------------------------------------
+-- Package Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- DBMS_OUTPUT Limitations:
+--
+-- Oracle 9i:
+--  Errors raised:
+--  ORU-10027: buffer overflow, limit of <buf_limit> bytes.
+--  ORU-10028:line length overflow, limit of 255 bytes
+
+-- Oracle 10g:
+--  Errors raised:
+--  ORU-10027: buffer overflow, limit of <buf_limit> bytes.
+--  ORU-10028:line length overflow, limit of 32767 bytes per line.
+
+-- Note: Procedures assume LINESIZE 100 in SQL*Plus
+------------------------------------------------------------------
+
+
+------------------------------------------------------------------
+-- PrintLine: Wrapper Procedure to DBMS_OUTPUT
+-- avoids ORU-10028 Errors with lines larger 255 bytes (up until 9i)
+-- adapted from Steven Feuerstein: PL/SQL Best Practices (B-01)
+------------------------------------------------------------------
+PROCEDURE pl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE);
+
+------------------------------------------------------------------
+-- PrintPrettyLine: Wrapper Procedure to DBMS_OUTPUT
+-- see PrintLine for Description
+-- added support for "pretty" line breaks at last blank of line.
+------------------------------------------------------------------
+PROCEDURE ppl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE);
+
+------------------------------------------------------------------
+-- Wrapper Procedure to DBMS_OUTPUT for easier access
+-- and extended functionality. Calls to pl and ppl are made from it.
+------------------------------------------------------------------
+PROCEDURE p (
+str_in IN VARCHAR2,
+len_in IN NUMBER DEFAULT 100,
+p_line IN BOOLEAN DEFAULT TRUE, -- use put_line ?
+padding IN NUMBER DEFAULT NULL, -- use rpad?
+padchar IN CHAR DEFAULT '.',        -- character used for padding
+print_pretty IN BOOLEAN := FALSE,  -- use PrintPretty for Linebreaks
+expand_in IN BOOLEAN := TRUE);
+
+END "PRN";
+/
+
+
+------------------------------------------------------------------
+--                          Package Body
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY "PRN"
+IS
+
+------------------------------------------------------------------
+-- Private Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- Printing Output Procedures
+------------------------------------------------------------------
+
+-- print_line
+PROCEDURE pl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE)
+IS
+len PLS_INTEGER;
+str VARCHAR2(2000);
+BEGIN
+    -- set maximum chars/line
+    IF (db_version < 10) THEN
+        len  := LEAST (len_in, 255);
+    ELSE
+        len  := LEAST (len_in, 32767);
+    END IF;
+
+    IF (LENGTH (str_in) > len) THEN
+        str := SUBSTR (str_in, 1, len);
+        DBMS_OUTPUT.PUT_LINE (str);
+        --recursive call of this procedure for remaining characters
+        pl (SUBSTR (str_in, len + 1), len, expand_in);
+    ELSE
+        str := str_in;
+        DBMS_OUTPUT.PUT_LINE (str);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE ('Execption in PL');
+    IF expand_in THEN
+       DBMS_OUTPUT.ENABLE (1000000);
+    ELSE
+       RAISE;
+    END IF;
+    DBMS_OUTPUT.PUT_LINE (str);
+END;
+
+
+-- print_pretty_line
+PROCEDURE ppl (
+str_in IN VARCHAR2,
+len_in IN INTEGER := 100,
+expand_in IN BOOLEAN := TRUE)
+IS
+len PLS_INTEGER := LEAST (len_in, 255);
+str VARCHAR2(2000);
+BEGIN
+    -- set maximum chars/line
+    IF (db_version < 10) THEN
+        len  := LEAST (len_in, 255);
+    ELSE
+        len  := LEAST (len_in, 32767);
+    END IF;
+
+    IF (LENGTH (str_in) > len) THEN
+        -- increment package variable ppl_cnt first
+        ppl_cnt := ppl_cnt + 1;
+        IF (ppl_cnt = 1) THEN -- first run, so set l_len
+        -- len_in can change at runtime, so we need a constant value here.
+            ppl_len := len_in;
+        END IF;
+
+        str := SUBSTR (str_in, 1, len);
+        len := INSTR(str, ' ', -1, 1);
+        str := SUBSTR (str, 1, INSTR(str, ' ', -1, 1));
+        DBMS_OUTPUT.PUT_LINE (str);
+        --recursive call of this procedure for remaining characters
+        ppl (SUBSTR (str_in, len + 1), ppl_len, expand_in);
+    ELSE
+        str := str_in;
+        DBMS_OUTPUT.PUT_LINE (str);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE ('Execption in PPL');
+    IF expand_in THEN
+       DBMS_OUTPUT.ENABLE (1000000);
+    ELSE
+       RAISE;
+    END IF;
+    -- PUT_LINE Exceptions are handled in ppl or pl already
+    DBMS_OUTPUT.PUT (str);
+END;
+
+
+------------------------------------------------------------------
+-- Public Procedures and Functions
+------------------------------------------------------------------
+-- print
+PROCEDURE p (
+str_in IN VARCHAR2,
+len_in IN NUMBER DEFAULT 100,
+p_line IN BOOLEAN DEFAULT TRUE, -- use put_line ?
+padding IN NUMBER DEFAULT NULL, -- use rpad?
+padchar IN CHAR DEFAULT '.',         -- character used for padding
+print_pretty IN BOOLEAN := FALSE,  -- use PrintPretty for Linebreaks
+expand_in IN BOOLEAN := TRUE)
+IS
+str VARCHAR2(2000);
+max_line PLS_INTEGER;
+BEGIN
+
+    IF (padding IS NOT NULL) THEN
+        str := RPAD(str_in, padding, padchar);
+    ELSE
+        str := str_in;
+    END IF;
+
+    IF (p_line) THEN
+        IF (print_pretty) THEN
+        --DBMS_OUTPUT.PUT_LINE ('Printing Pretty Line: '||str);
+            ppl (str, len_in);
+        ELSE
+        --DBMS_OUTPUT.PUT_LINE ('Printing Line: '||str);
+            pl (str, len_in);
+        END IF;
+    ELSE
+        DBMS_OUTPUT.PUT(str);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    IF expand_in THEN
+       DBMS_OUTPUT.ENABLE (1000000);
+    ELSE
+       RAISE;
+    END IF;
+    -- PUT_LINE Exceptions are handled in ppl or pl already
+    DBMS_OUTPUT.PUT (str);
+END;
+
+------------------------------------------------------------------
+-- Initialization Section
+------------------------------------------------------------------
+BEGIN
+
+    -- Need separate initialization sections to catch exceptions
+
+NULL;
+------------------------------------------------------------------
+-- End of Initialization Section
+------------------------------------------------------------------
+
+END "PRN";
+/
+
+------------------------------------------------------------------
+-- Display Errors if any
+------------------------------------------------------------------
+@show_pkg_errors.sql "PRN"
+--@show_pkg_source.sql "prn"
+
+------------------------------------------------------------------
+-- Privileges and Public Synonym
+------------------------------------------------------------------
+set feedback off
+declare
+cnt pls_integer := 0;
+begin
+    select nvl(count(*),0) into cnt
+    from all_objects
+    where object_type in ('PACKAGE','PACKAGE BODY')
+    and owner = user
+    and object_name = 'PRN'
+    and status = 'VALID';
+    if cnt = 2 then
+        --execute immediate 'CREATE OR REPLACE PUBLIC SYNONYM "PRN" FOR "'||user||'"."PRN"';
+        execute immediate 'GRANT EXECUTE ON "'||user||'"."PRN" TO DBA';
+    end if;
+end;
+/
+set feedback on
+
+----------------------------------------------------------------------------------------------------
+create or replace procedure pl (
+p_str_in IN VARCHAR2,
+p_len_in IN INTEGER := 100,
+p_expand_in IN BOOLEAN := TRUE)
+is
+begin
+  prn.pl(   STR_IN => P_STR_IN
+            , LEN_IN => P_LEN_IN
+            , EXPAND_IN => P_EXPAND_IN);
+end;
+/
+
+------------------------------------------------------------------
+-- PrintPrettyLine: Wrapper Procedure to DBMS_OUTPUT
+-- see PrintLine for Description
+-- added support for "pretty" line breaks at last blank of line.
+------------------------------------------------------------------
+create or replace procedure ppl (
+p_str_in IN VARCHAR2,
+p_len_in IN INTEGER := 100,
+p_expand_in IN BOOLEAN := TRUE)
+is
+begin
+  prn.ppl(  STR_IN => P_STR_IN
+             , LEN_IN => P_LEN_IN
+             , EXPAND_IN => P_EXPAND_IN);
+end;
+/
+
+------------------------------------------------------------------
+-- Wrapper Procedure to DBMS_OUTPUT for easier access
+-- and extended functionality. Calls to pl and ppl are made from it.
+------------------------------------------------------------------
+create or replace procedure p (
+p_str_in IN VARCHAR2,
+p_len_in IN NUMBER DEFAULT 100,
+p_line IN BOOLEAN DEFAULT TRUE, -- use put_line ?
+p_padding IN NUMBER DEFAULT NULL, -- use rpad?
+p_padchar IN CHAR DEFAULT '.',        -- character used for padding
+p_print_pretty IN BOOLEAN := FALSE,  -- use PrintPretty for Linebreaks
+p_expand_in IN BOOLEAN := TRUE)
+is
+begin
+  PRN.p (  STR_IN => P_STR_IN
+             , LEN_IN => P_LEN_IN
+             , P_LINE => P_LINE
+             , PADDING => P_PADDING
+             , PADCHAR => P_PADCHAR
+             , PRINT_PRETTY => P_PRINT_PRETTY
+             , EXPAND_IN => P_EXPAND_IN) ;  
+end;
+/
+
+
+
+
+

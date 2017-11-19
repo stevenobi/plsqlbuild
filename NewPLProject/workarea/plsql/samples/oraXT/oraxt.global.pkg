@@ -1,0 +1,125 @@
+----------------------------------------------------------------------------------
+--
+-- Title: global.pkg (DBA SYSTEM)
+--
+-- Description: PL/SQL Package to provide standard procedures and functions.
+--
+-- Parameters: None
+--
+-- History:      12.09.2007  S.Obermeyer created
+--
+----------------------------------------------------------------------------------
+
+------------------------------------------------------------------
+
+-- Standard Procedures and Functions are defined in this Package
+-- and used by DBA Scripts and other processes.
+
+------------------------------------------------------------------
+--                          Package Specification
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE "GLOBAL" AUTHID CURRENT_USER
+IS
+
+------------------------------------------------------------------
+-- Global Variables, REF_CURSORS and Types
+------------------------------------------------------------------
+
+-- name of this package
+pkg varchar2(30) := 'GLOBAL';
+
+-- Debug
+g_debug boolean := true;
+
+g_istrue CONSTANT  BOOLEAN := true;
+g_isfalse CONSTANT BOOLEAN := false;
+
+-- status output
+g_ok CONSTANT VARCHAR2(4) := ' OK.';
+g_failed CONSTANT VARCHAR2(8) := ' Failed!';
+
+-- padding
+g_pad CONSTANT PLS_INTEGER := 85;
+
+-- majorversion of current instance
+g_db_version PLS_INTEGER;
+
+-- names of objects (tables, views... usually 30 bytes)
+SUBTYPE g_name IS DBA_OBJECTS.SUBOBJECT_NAME%TYPE;
+
+-- generic weak REF CURSOR (no RETURN Clause)
+TYPE g_curtype IS REF CURSOR;
+
+
+END "GLOBAL";
+/
+
+
+------------------------------------------------------------------
+--                          Package Body
+------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY "GLOBAL"
+IS
+
+------------------------------------------------------------------
+-- Private Procedures and Functions
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- Admin Functions (converters mostly)
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- Initialization Section
+------------------------------------------------------------------
+BEGIN
+
+    -- Need separate initialization sections to catch exceptions
+
+     -- current Database Majorversion
+     -- (set in here once to minimize depencies among packages)
+     BEGIN
+        SELECT TO_NUMBER(SUBSTR(version, 1, INSTR(version,'.')-1) ) INTO g_db_version
+        FROM "V$INSTANCE";
+      EXCEPTION WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE ('ERROR Initializing DB Version in Package '|| pkg||'!');
+      DBMS_OUTPUT.PUT_LINE (SQLERRM);
+    END;
+
+
+------------------------------------------------------------------
+-- End of Initialization Section
+------------------------------------------------------------------
+
+END "GLOBAL";
+/
+
+------------------------------------------------------------------
+-- Display Errors if any
+------------------------------------------------------------------
+@show_pkg_errors.sql "GLOBAL"
+--@show_pkg_source.sql "global"
+
+------------------------------------------------------------------
+-- Privileges and Public Synonym
+------------------------------------------------------------------
+set feedback off
+declare
+cnt pls_integer := 0;
+begin
+    select nvl(count(*),0) into cnt
+    from all_objects
+    where object_type in ('PACKAGE','PACKAGE BODY')
+    and owner = user
+    and object_name = 'GLOBAL'
+    and status = 'VALID';
+    if cnt = 2 then
+        execute immediate 'CREATE OR REPLACE PUBLIC SYNONYM "GLOBAL" FOR "'||user||'"."GLOBAL"';
+        execute immediate 'GRANT EXECUTE ON "'||user||'"."GLOBAL" TO DBA';
+    end if;
+end;
+/
+set feedback on
+
+----------------------------------------------------------------------------------------------------
+

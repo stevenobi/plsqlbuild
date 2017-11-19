@@ -1,0 +1,20 @@
+* {
+    font-family: monospace, menlo, verdana;
+    font-size: 16px;
+    padding: 24px;
+    margin: auto;
+}
+
+body {
+    background-color: darkorchid;
+}
+
+h1 {
+    color: azure;
+    font-size: 32px;
+}
+
+#greeting * {
+    color: rgb(240, 240, 223);
+    font-size: 18px;
+}
