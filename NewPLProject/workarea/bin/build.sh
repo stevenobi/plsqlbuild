@@ -36,11 +36,12 @@ clear
 THIS_PACKAGE="APX"
 THIS_VERSION="1.0.0"
 THIS_MODEL="Application Modules"
+
+[ ! -z ${1} ] && PRJ=${1} || PRJ="Project"
+## -- give "--run" as 2nd arg to actually run your build.sql
+[ ! -z ${2} ] && RUNBUILD=${2} || RUNBUILD="--no-run"
 ## Provide a Build Comment here or as 1st arg on commandline
-[[ -z ${1} ]] && THIS_BUILD_COMMENT="New Build"|| \
- THIS_BUILD_COMMENT=`echo ${1}`;
-## Runtime will work on these scripts in the order tehy are specified //build.drop.sql
-THIS_MODULES="build.sql ./model/sql_drop.sql ./model/sql_create.sql"
+THIS_BUILD_COMMENT=`echo ${PRJ}`;
 
 ########################################################################
 
@@ -64,12 +65,15 @@ SQL=${BIN}/sqlcl/bin/sql
 GIT=`which git`
 MD5=`which md5`
 BLD="build"
+BASH=`which bash`
+BLDSQL=buildsql.sh
 
 ########################################################################
 
 THIS_DIR="`pwd`";
 THIS_LOG=${BLD}.log
 THIS_BUILDFILE="./.${BLD}file";
+THIS_BUILDSQL=${BLD}.sql
 THIS_GIT_LOG="./.buildgit";
 THIS_DATE=`date "+%y%m%d%H%M"`;
 
@@ -133,9 +137,16 @@ echo "" | tee -a ${THIS_LOG}
 
 ########################################################################
 
-for m in ${THIS_MODULES}; do
-  $SQL -s ${USR}/${PWD}@${CONN} @${m} "${THIS_BANNER}" "${THIS_VERSION}" | tee -a ${THIS_LOG}
-done;
+########################################################################
+
+# Build SQL for this Package assembles all single SQL Files into one
+# big build.sql file in the working directory of your project.
+
+${BLDSQL} ${THIS_PACKAGE}
+
+## run build.sql with sqlcl
+[[ ${RUNBUILD} = "--run" ]] && echo "Running SQL Build for ${USR}@${CONN}..." && echo "" && \
+$SQL -s ${USR}/${PWD}@${CONN} @${THIS_BUILDSQL} "${THIS_PACKAGE}" | tee -a ${THIS_LOG}
 
 ########################################################################
 
@@ -147,7 +158,7 @@ echo "" | tee -a ${THIS_LOG}
 
 # commit all changes from this build
 [[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}"  \
-${THIS_LOG} ${THIS_GIT_LOG} >/dev/null;
+${THIS_LOG} ${THIS_GIT_LOG} ${THIS_BUILDSQL} >/dev/null;
 
 ########################################################################
 

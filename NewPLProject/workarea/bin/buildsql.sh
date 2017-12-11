@@ -27,7 +27,7 @@
 #set -x
 ########################################################################
 
-clear
+#clear
 
 ########################################################################
 
@@ -35,8 +35,8 @@ SED=`which sed`
 TEE=`which tee`
 CAT=`which cat`
 BLD="build"
-BUILDFILE=${BLD}".lst"
-SQLBUILD=${BLD}".sql"
+BUILDFILE=${BLD}.lst
+SQLBUILD=${BLD}.sql
 THIS_DATE=`date "+%y.%m.%d %H:%M"`;
 
 [ ! -z ${1} ] && PRJ=${1} || PRJ="Project"
@@ -45,8 +45,8 @@ THIS_DATE=`date "+%y.%m.%d %H:%M"`;
 
 ########################################################################
 
-
-echo "${THIS_DATE} ${SQLCREATEFILE} "
+echo "" | ${TEE} -a ${SQLBUILD}
+echo "${THIS_DATE} *** BEGIN BUILD"| ${TEE} -a ${SQLBUILD}
 
 ${CAT} ${SQLCREATEFILE} | grep @ | egrep -v ^-| cut -f2 -d@ | \
 ${SED} -e 's/ /\\\ /g' -e 's/^"//' -e 's/"$//' -e 's/^/cat /g' > ${BUILDFILE}
@@ -58,11 +58,12 @@ echo "" | ${TEE} ${SQLBUILD}
 echo "---------------------------------------------------------------" | ${TEE} -a ${SQLBUILD}
 echo "       ---- ${THIS_DATE} Begin of SQL Build ${PRJ} ----" | ${TEE} -a ${SQLBUILD}
 echo "" >> ${SQLBUILD}
-echo "whenever oserror exit" >> ${SQLBUILD}
-echo "whenever sqlerror exit sql.sqlcode;" >> ${SQLBUILD}
 
+echo "" >> ${SQLBUILD}
+## dropping first
 ${CAT} ${SQLDROPFILE} >> ${SQLBUILD}
 echo "" >> ${SQLBUILD}
+## sql build then
 ./${BUILDFILE} >> ${SQLBUILD}
 
 echo "" >> ${SQLBUILD}
@@ -70,4 +71,4 @@ echo "       ---- ${THIS_DATE}  End of SQL Build ${PRJ}  ----" | ${TEE} -a ${SQL
 echo "---------------------------------------------------------------" | ${TEE} -a ${SQLBUILD}
 echo "" | ${TEE} -a ${SQLBUILD}
 
-exit ${?}
+#exit ${?}
