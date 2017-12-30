@@ -33,7 +33,6 @@ clear
 
 ########################################################################
 
-THIS_PACKAGE="APX"
 THIS_VERSION="1.0.0"
 THIS_MODEL="Application Modules"
 
@@ -42,6 +41,8 @@ THIS_MODEL="Application Modules"
 [ ! -z ${2} ] && RUNBUILD=${2} || RUNBUILD="--no-run"
 ## Provide a Build Comment here or as 1st arg on commandline
 THIS_BUILD_COMMENT=`echo ${PRJ}`;
+
+THIS_PACKAGE=${PRJ}
 
 ########################################################################
 
@@ -73,6 +74,7 @@ BLDSQL=buildsql.sh
 THIS_DIR="`pwd`";
 THIS_LOG=${BLD}.log
 THIS_BUILDFILE="./.${BLD}file";
+THIS_BUILDLIST=${BLD}.lst
 THIS_BUILDSQL=${BLD}.sql
 THIS_GIT_LOG="./.buildgit";
 THIS_DATE=`date "+%y%m%d%H%M"`;
@@ -158,7 +160,7 @@ echo "" | tee -a ${THIS_LOG}
 
 # commit all changes from this build
 [[ -x ${GIT} ]] && ${GIT} commit -m "Latest Build Commit: ${THIS_PACKAGE} ${THIS_VERSION}"  \
-${THIS_LOG} ${THIS_GIT_LOG} ${THIS_BUILDSQL} >/dev/null;
+${THIS_LOG} ${THIS_GIT_LOG} ${THIS_BUILDLIST} ${THIS_BUILDSQL} >/dev/null;
 
 ########################################################################
 
